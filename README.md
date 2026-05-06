@@ -2,6 +2,8 @@
 
 Chrome extension that intercepts player fullscreen requests and turns them into a viewport-sized fullscreen inside the browser tab.
 
+The extension icon is generated from `scripts/generate-icons.js` into `assets/icons/`.
+
 ## Load in Chrome
 
 1. Open `chrome://extensions`.

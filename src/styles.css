@@ -31,8 +31,7 @@ frame.vfs-frame-active {
   z-index: 2147483647 !important;
 }
 
-video.vfs-active,
-.vfs-active video {
+video.vfs-active {
   width: 100% !important;
   height: 100% !important;
   max-width: none !important;
@@ -48,4 +47,10 @@ video.vfs-active,
   height: 100% !important;
   max-width: none !important;
   max-height: none !important;
+}
+
+.vfs-active .ytp-cinematic-container,
+.vfs-active .ytp-gradient-top,
+.vfs-active .ytp-gradient-bottom {
+  display: none !important;
 }

@@ -8,7 +8,9 @@
 
   var CHANNEL = "__viewport_fullscreen__";
   var activeElement = null;
+  var activeSourceElement = null;
   var convertingNativeFullscreen = false;
+  var lastInteractionTarget = null;
 
   var nativeRequestDescriptors = [
     ["requestFullscreen", Element.prototype],
@@ -63,6 +65,10 @@
   patchExitFullscreen("mozCancelFullScreen");
   patchExitFullscreen("msExitFullscreen");
 
+  document.addEventListener("pointerdown", rememberInteractionTarget, true);
+  document.addEventListener("click", rememberInteractionTarget, true);
+  document.addEventListener("keydown", rememberKeyboardTarget, true);
+
   document.addEventListener("fullscreenchange", convertNativeFullscreen, true);
   document.addEventListener("webkitfullscreenchange", convertNativeFullscreen, true);
   document.addEventListener("mozfullscreenchange", convertNativeFullscreen, true);
@@ -86,20 +92,23 @@
   });
 
   function enterViewportFullscreen(element) {
-    if (!element || !element.classList) {
+    var fullscreenTarget = resolveFullscreenTarget(element);
+
+    if (!fullscreenTarget || !fullscreenTarget.classList) {
       return Promise.resolve();
     }
 
-    if (activeElement && activeElement !== element) {
+    if (activeElement && activeElement !== fullscreenTarget) {
       exitViewportFullscreen({ silentParent: true });
     }
 
-    activeElement = element;
-    element.classList.add("vfs-active");
-    element.setAttribute("data-vfs-active", "true");
+    activeElement = fullscreenTarget;
+    activeSourceElement = element;
+    fullscreenTarget.classList.add("vfs-active");
+    fullscreenTarget.setAttribute("data-vfs-active", "true");
     lockDocument(true);
     notifyAncestors("enter");
-    emitFullscreenChange(element);
+    emitFullscreenChange(fullscreenTarget, element);
 
     return Promise.resolve();
   }
@@ -112,6 +121,7 @@
     }
 
     activeElement = null;
+    activeSourceElement = null;
     previous.classList.remove("vfs-active");
     previous.removeAttribute("data-vfs-active");
     lockDocument(false);
@@ -120,7 +130,7 @@
       notifyAncestors("exit");
     }
 
-    emitFullscreenChange(previous);
+    emitFullscreenChange(previous, previous);
     return Promise.resolve();
   }
 
@@ -183,7 +193,7 @@
       configurable: true,
       enumerable: descriptor.enumerable,
       get: function getViewportFullscreenElement() {
-        return activeElement || descriptor.get.call(this);
+        return activeSourceElement || activeElement || descriptor.get.call(this);
       }
     });
   }
@@ -237,6 +247,141 @@
     }
   }
 
+  function rememberInteractionTarget(event) {
+    if (event && event.target && event.target.nodeType === Node.ELEMENT_NODE) {
+      lastInteractionTarget = event.target;
+    }
+  }
+
+  function rememberKeyboardTarget(event) {
+    if (!event || event.key !== "f") {
+      return;
+    }
+
+    if (document.activeElement && document.activeElement.nodeType === Node.ELEMENT_NODE) {
+      lastInteractionTarget = document.activeElement;
+    }
+  }
+
+  function resolveFullscreenTarget(element) {
+    if (!element || element.nodeType !== Node.ELEMENT_NODE) {
+      return element;
+    }
+
+    var knownPlayer = findKnownPlayerContainer(element);
+    if (knownPlayer) {
+      return knownPlayer;
+    }
+
+    if (isDocumentShell(element)) {
+      return inferPlayerFromInteraction() || inferLargestMediaContainer() || element;
+    }
+
+    if (element.matches && element.matches("video")) {
+      return findKnownPlayerContainer(element.parentElement) || element;
+    }
+
+    return element;
+  }
+
+  function inferPlayerFromInteraction() {
+    if (!lastInteractionTarget || !document.contains(lastInteractionTarget)) {
+      return null;
+    }
+
+    return findKnownPlayerContainer(lastInteractionTarget) || findMediaContainerFrom(lastInteractionTarget);
+  }
+
+  function inferLargestMediaContainer() {
+    var videos = Array.prototype.slice.call(document.querySelectorAll("video"));
+    var best = null;
+    var bestArea = 0;
+
+    videos.forEach(function scoreVideo(video) {
+      var container = findKnownPlayerContainer(video) || video;
+      var rect = container.getBoundingClientRect();
+      var area = rect.width * rect.height;
+
+      if (area > bestArea) {
+        best = container;
+        bestArea = area;
+      }
+    });
+
+    return best;
+  }
+
+  function findKnownPlayerContainer(element) {
+    if (!element || !element.closest) {
+      return null;
+    }
+
+    var selectors = [
+      "#movie_player",
+      ".html5-video-player",
+      ".video-js",
+      ".jwplayer",
+      ".plyr",
+      ".shaka-video-container",
+      ".bitmovinplayer-container",
+      ".clappr-player",
+      ".theoplayer-container",
+      "[data-player]",
+      "[data-video-player]",
+      "[class*='player']",
+      "[class*='Player']"
+    ];
+
+    for (var index = 0; index < selectors.length; index += 1) {
+      var candidate = element.closest(selectors[index]);
+
+      if (candidate && containsMedia(candidate)) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  function containsMedia(element) {
+    if (!element) {
+      return false;
+    }
+
+    if (element.matches && element.matches("video, iframe, embed, object")) {
+      return true;
+    }
+
+    return Boolean(element.querySelector && element.querySelector("video, iframe, embed, object"));
+  }
+
+  function findMediaContainerFrom(element) {
+    if (!element || !element.closest) {
+      return null;
+    }
+
+    var localPlayer = element.closest("video, iframe, embed, object");
+    if (localPlayer) {
+      return localPlayer;
+    }
+
+    var container = element;
+
+    while (container && container !== document.documentElement) {
+      if (container.querySelector && container.querySelector("video, iframe, embed, object")) {
+        return container;
+      }
+
+      container = container.parentElement;
+    }
+
+    return null;
+  }
+
+  function isDocumentShell(element) {
+    return element === document.documentElement || element === document.body;
+  }
+
   function notifyAncestors(action) {
     if (window.parent === window) {
       return;
@@ -249,13 +394,17 @@
     }, "*");
   }
 
-  function emitFullscreenChange(target) {
+  function emitFullscreenChange(target, source) {
     setTimeout(function dispatchEvents() {
       ["fullscreenchange", "webkitfullscreenchange", "mozfullscreenchange", "MSFullscreenChange"].forEach(function dispatch(name) {
         document.dispatchEvent(new Event(name, { bubbles: true }));
 
         if (target && typeof target.dispatchEvent === "function") {
           target.dispatchEvent(new Event(name, { bubbles: true }));
+        }
+
+        if (source && source !== target && typeof source.dispatchEvent === "function") {
+          source.dispatchEvent(new Event(name, { bubbles: true }));
         }
       });
     }, 0);

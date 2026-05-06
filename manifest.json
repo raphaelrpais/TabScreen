@@ -2,7 +2,22 @@
   "manifest_version": 3,
   "name": "TabScreen",
   "description": "Keeps video/player fullscreen inside the browser viewport instead of taking over the entire display.",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "32": "assets/icons/icon-32.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "TabScreen",
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "32": "assets/icons/icon-32.png",
+      "48": "assets/icons/icon-48.png",
+      "128": "assets/icons/icon-128.png"
+    }
+  },
   "host_permissions": [
     "<all_urls>"
   ],
